@@ -1,5 +1,5 @@
 [project]
-name = "pamiq_ros"
+name = "pamiq-ros"
 version = "0.0.0"
 description = "Add your description here"
 readme = "README.md"
