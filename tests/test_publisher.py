@@ -1,4 +1,4 @@
-from ros2_uv_template.publisher_member_function import MinimalPublisher
+from pamiq_ros.publisher_member_function import MinimalPublisher
 
 
 def test_publisher_creation(rclpy_init):
