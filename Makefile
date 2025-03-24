@@ -43,3 +43,8 @@ format: ## Run pre-commit hooks
 
 test: ## Run pytest
 	uv run pytest
+
+type: ## Run pyright
+	uv run pyright
+
+run: format test type ## Run all workflow

@@ -4,14 +4,20 @@ version = "0.0.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pamiq-core",
+]
 
 [tool.uv]
 python-preference = "only-system"
 
+[tool.uv.sources]
+pamiq-core = { git = "https://github.com/MLShukai/pamiq-core" }
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.0.1",
+    "pyright>=1.1.397",
     "pytest>=8.3.4",
 ]
 
@@ -94,3 +100,16 @@ log_cli = true
 
 minversion = "6.0"
 testpaths = "tests/"
+
+[tool.pyright]
+pythonVersion = "3.12"
+exclude = [
+  "**/node_modules",
+  "**/__pycache__",
+  "**/.venv",
+  "tests/"
+]
+strict = ["./src/"]
+reportMissingTypeStubs = false
+reportImplicitOverride = true
+reportPrivateUsage = "warning"
