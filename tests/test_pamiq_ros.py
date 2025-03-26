@@ -12,4 +12,6 @@ def test_version():
     assert pyproject["project"]["version"] == pamiq_ros.__version__
 
     ros_package = ET.parse(PROJECT_ROOT / "package.xml").getroot()
-    assert ros_package.find("version").text == pamiq_ros.__version__
+    version = ros_package.find("version")
+    assert version is not None
+    assert version.text == pamiq_ros.__version__
