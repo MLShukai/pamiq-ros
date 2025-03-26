@@ -4,7 +4,7 @@ import pytest
 import rclpy
 
 
-@pytest.fixture(scope="session")  # Using this fixture in all test session.
+@pytest.fixture(autouse=True)  # Using this fixture in all test session.
 def rclpy_init() -> Generator[None, None, None]:
     rclpy.init()
     yield
