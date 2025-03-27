@@ -152,7 +152,7 @@ class TestCachedObsROS2Environment:
     ):
         """Test that observations are cached."""
         # Publish first message
-        obs_publisher.publish_test_message()
+        obs_publisher.publish("test message")
         executor.spin_once(0.1)
 
         # Get observation, should be cached message

@@ -22,9 +22,6 @@ class TestPublisher(Node):
         self._publisher.publish(msg)
         self._counter += 1
 
-    def publish_test_message(self) -> None:
-        self.publish("test message")
-
 
 class TestSubscriber(Node):
     def __init__(self, topic_name: str = "test_topic", qos_depth: int = 10) -> None:
