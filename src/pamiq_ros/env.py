@@ -275,3 +275,154 @@ class CachedObsROS2Environment[Obs, Act](ROS2Environment[Obs, Act]):
                 )
 
             return self._observation
+
+
+class ReactiveROS2Environment[Obs, Act](ROS2Environment[Obs, Act]):
+    """ROS2 environment that waits for a new message on each observe call.
+
+    This implementation blocks on each observe() call until a new
+    message is received from the ROS2 topic or until the timeout is
+    reached.
+    """
+
+    def __init__(
+        self,
+        node_name: str,
+        obs_topic_name: str,
+        obs_msg_type: type[Obs],
+        action_topic_name: str,
+        action_msg_type: type[Act],
+        qos: int | QoSProfile,
+        obs_get_timeout: float,
+        timeout_obs: Obs,
+        node_kwds: Kwds = DEFAULT_KWDS,
+        obs_kwds: Kwds = DEFAULT_KWDS,
+        action_kwds: Kwds = DEFAULT_KWDS,
+    ) -> None:
+        """Initialize reactive ROS2 environment.
+
+        Args:
+            node_name: Name of the ROS2 node
+            obs_topic_name: Topic name for observations
+            obs_msg_type: Message type for observations
+            action_topic_name: Topic name for actions
+            action_msg_type: Message type for actions
+            qos: Quality of Service profile or depth
+            obs_get_timeout: Timeout for waiting for a new observation
+            timeout_obs: Observation to return if timeout occurs
+            node_kwds: Additional keyword arguments for node creation
+            obs_kwds: Additional keyword arguments for subscription
+            action_kwds: Additional keyword arguments for publisher
+        """
+        super().__init__(
+            node_name,
+            obs_topic_name,
+            obs_msg_type,
+            action_topic_name,
+            action_msg_type,
+            qos,
+            node_kwds,
+            obs_kwds,
+            action_kwds,
+        )
+        self._obs_condition = threading.Condition()
+        self._obs_get_timeout = obs_get_timeout
+        self._timeout_obs = timeout_obs
+        self._next_observation: Obs | None = None
+        self._thread_running = False
+
+    def has_new_observation(self) -> bool:
+        return self._next_observation is not None
+
+    @override
+    def _create_obs_thread(self) -> threading.Thread:
+        """Create the observation thread with monitoring for thread
+        termination.
+
+        Returns:
+            A daemon thread that spins the ROS2 node and monitors its state
+        """
+
+        def obs_thread_func():
+            self._thread_running = True
+
+            try:
+                rclpy.spin(self._node)
+            finally:
+                # Important: Release any waiting observe methods when thread terminates
+                with self._obs_condition:
+                    self._thread_running = False
+                    self._obs_condition.notify_all()
+                self._logger.info(
+                    f"ROS2 spin thread for node '{self._node.get_name()}' has terminated"
+                )
+
+        thread = threading.Thread(target=obs_thread_func)
+        thread.daemon = True
+        return thread
+
+    @override
+    def _obs_callback(self, data: Obs) -> None:
+        """Process an observation message from ROS2.
+
+        Stores the new message and notifies waiting threads.
+
+        Args:
+            data: Observation data from ROS2
+        """
+        with self._obs_condition:
+            self._next_observation = data
+            self._obs_condition.notify_all()
+
+    @override
+    def observe(self) -> Obs:
+        """Wait for and return the next observation from ROS2.
+
+        This method blocks until a new message is received on the topic
+        or the timeout is reached.
+
+        Returns:
+            Next observation from ROS2 or timeout observation if timeout occurs
+
+        Raises:
+            RuntimeError: If called before setup
+            RuntimeError: If received observation is None despite notification
+        """
+        if self._obs_thread is None or not self._obs_thread.is_alive():
+            raise RuntimeError(
+                "Environment not set up. Call `setup()` before observe()."
+            )
+
+        with self._obs_condition:
+            # Timeout immediately if thread is not running
+            if not self._thread_running:
+                self._logger.error(
+                    f"ROS2 spin thread is not running, cannot receive observations from '{self.obs_topic_name}'"
+                )
+                return self._timeout_obs
+
+            # Wait for new observation or thread termination
+            if not self.has_new_observation():
+                wait_result = self._obs_condition.wait(timeout=self._obs_get_timeout)
+
+                # Check if thread terminated during wait
+                if not self._thread_running:
+                    self._logger.info(
+                        f"ROS2 spin thread terminated while waiting for observation on '{self.obs_topic_name}'"
+                    )
+                    return self._timeout_obs
+
+                # Handle timeout case
+                if not wait_result and not self.has_new_observation():
+                    self._logger.warning(
+                        f"Timed out waiting for observation on topic '{self.obs_topic_name}'"
+                    )
+                    return self._timeout_obs
+
+            # If _has_new_observation is True, _next_observation must not be None
+            if self._next_observation is None:
+                raise RuntimeError("Received observation is None despite notification")
+
+            observation = self._next_observation
+            self._next_observation = None
+            return observation

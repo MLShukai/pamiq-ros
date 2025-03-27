@@ -1,11 +1,17 @@
+import threading
 from collections.abc import Generator
 
 import pytest
+import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from pamiq_ros.env import CachedObsROS2Environment, ROS2Environment
+from pamiq_ros.env import (
+    CachedObsROS2Environment,
+    ReactiveROS2Environment,
+    ROS2Environment,
+)
 from tests.helpers import TestPublisher, TestSubscriber
 
 
@@ -168,3 +174,109 @@ class TestCachedObsROS2Environment:
             assert observation2.data == "test message 2"
         finally:
             node.destroy_node()
+
+
+class TestReactiveROS2Environment:
+    """Tests for ReactiveROS2Environment."""
+
+    @pytest.fixture
+    def reactive_env(self) -> ReactiveROS2Environment[String, String]:
+        """ReactiveROS2Environment fixture."""
+        # Create default timeout observation
+        timeout_obs = String()
+        timeout_obs.data = "timeout observation"
+
+        env = ReactiveROS2Environment(
+            node_name="test_reactive_env_node",
+            obs_topic_name="/test_obs_topic",
+            obs_msg_type=String,
+            action_topic_name="/test_action_topic",
+            action_msg_type=String,
+            qos=10,
+            obs_get_timeout=0.1,  # Short timeout for tests
+            timeout_obs=timeout_obs,
+        )
+        return env
+
+    @pytest.fixture
+    def setup_reactive_env(
+        self, reactive_env: ReactiveROS2Environment
+    ) -> Generator[ReactiveROS2Environment, None, None]:
+        """Setup and teardown for reactive environment."""
+        reactive_env.setup()
+        try:
+            yield reactive_env
+        finally:
+            reactive_env.teardown()
+
+    def test_observe_timeout(
+        self, setup_reactive_env: ReactiveROS2Environment[String, String]
+    ):
+        """Test observation timeout returns timeout_obs."""
+        # Should return timeout observation since no message will be published
+        observation = setup_reactive_env.observe()
+        assert observation.data == "timeout observation"
+
+    def test_observe_with_message(
+        self,
+        setup_reactive_env: ReactiveROS2Environment[String, String],
+        executor: SingleThreadedExecutor,
+        obs_publisher: TestPublisher,
+    ):
+        """Test that observation returns when message arrives."""
+
+        # Set up background thread to publish message after short delay
+        def delayed_publish():
+            obs_publisher.publish("reactive test message")
+            executor.spin_once(0.05)
+
+        # Start background thread and call observe
+        timer = threading.Timer(0.05, delayed_publish)
+        timer.start()
+
+        # This should block until message is received or timeout
+        observation = setup_reactive_env.observe()
+
+        # Wait for background thread to complete
+        timer.join()
+
+        # Should receive the published message, not timeout
+        assert observation.data == "reactive test message"
+
+    def test_observe_thread_termination(
+        self, setup_reactive_env: ReactiveROS2Environment[String, String]
+    ):
+        """Test behavior when ROS2 thread terminates."""
+        # Manually terminate the thread
+        rclpy.shutdown()
+
+        # Should return timeout observation
+        observation = setup_reactive_env.observe()
+        assert observation.data == "timeout observation"
+
+    def test_observe_before_setup(self, reactive_env: ReactiveROS2Environment):
+        """Test calling observe before setup raises RuntimeError."""
+        with pytest.raises(RuntimeError, match="Environment not set up"):
+            reactive_env.observe()
+
+    def test_next_observation_handling(
+        self,
+        setup_reactive_env: ReactiveROS2Environment[String, String],
+        executor: SingleThreadedExecutor,
+        obs_publisher: TestPublisher,
+    ):
+        """Test the handling of _next_observation attribute."""
+        # Publish a message
+        obs_publisher.publish("first message")
+        executor.spin_once(0.1)
+
+        # First observation should get the message
+        observation1 = setup_reactive_env.observe()
+        assert observation1.data == "first message"
+
+        # _next_observation should be reset to None after observe()
+        assert setup_reactive_env.has_new_observation() is False
+
+        # Next observe call should timeout without new messages
+        observation2 = setup_reactive_env.observe()
+        assert observation2.data == "timeout observation"

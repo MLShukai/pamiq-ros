@@ -16,11 +16,14 @@ class TestPublisher(Node):
         )
         self._counter = 0
 
-    def publish_test_message(self) -> None:
+    def publish(self, data: str) -> None:
         msg = String()
-        msg.data = "test message"
+        msg.data = data
         self._publisher.publish(msg)
         self._counter += 1
+
+    def publish_test_message(self) -> None:
+        self.publish("test message")
 
 
 class TestSubscriber(Node):
