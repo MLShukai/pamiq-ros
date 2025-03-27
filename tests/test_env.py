@@ -135,7 +135,7 @@ class TestCachedObsROS2Environment:
             action_topic_name="/test_default_action_topic",
             action_msg_type=String,
             qos=10,
-            default_observation=default_msg,
+            default_obs=default_msg,
         )
         env.setup()
         try:

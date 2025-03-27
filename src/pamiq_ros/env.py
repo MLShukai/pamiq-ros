@@ -181,7 +181,7 @@ class CachedObsROS2Environment[Obs, Act](ROS2Environment[Obs, Act]):
         obs_kwds: Kwds = DEFAULT_KWDS,
         action_kwds: Kwds = DEFAULT_KWDS,
         obs_get_timeout: float | None = None,
-        default_observation: Obs | None = None,
+        default_obs: Obs | None = None,
     ) -> None:
         """Initialize cached ROS2 environment.
 
@@ -196,7 +196,7 @@ class CachedObsROS2Environment[Obs, Act](ROS2Environment[Obs, Act]):
             obs_kwds: Additional keyword arguments for subscription
             action_kwds: Additional keyword arguments for publisher
             obs_get_timeout: Timeout for waiting for observations (None means wait forever)
-            default_observation: Default observation to use if no message has been received yet
+            default_obs: Default observation to use if no message has been received yet
         """
         super().__init__(
             node_name,
@@ -211,7 +211,7 @@ class CachedObsROS2Environment[Obs, Act](ROS2Environment[Obs, Act]):
         )
         self._obs_condition = threading.Condition()
         self._obs_get_timeout = obs_get_timeout
-        self._observation = default_observation
+        self._observation = default_obs
 
     @property
     def _has_observation(self) -> bool:
