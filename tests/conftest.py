@@ -8,5 +8,4 @@ import rclpy
 def rclpy_init() -> Generator[None, None, None]:
     rclpy.init()
     yield
-    if rclpy.ok():
-        rclpy.shutdown()
+    rclpy.try_shutdown()
