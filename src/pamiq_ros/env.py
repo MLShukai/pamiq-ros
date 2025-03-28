@@ -36,6 +36,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         node_kwds: Kwds = DEFAULT_KWDS,
         obs_kwds: Kwds = DEFAULT_KWDS,
         action_kwds: Kwds = DEFAULT_KWDS,
+        obs_timeout: float | None = 0.0,
     ) -> None:
         """Initialize ROS2 environment.
 
@@ -50,6 +51,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             node_kwds: Additional keyword arguments for node creation
             obs_kwds: Additional keyword arguments for subscription
             action_kwds: Additional keyword arguments for publisher
+            obs_timeout: Timeout in seconds for waiting on new observations (None means no timeout)
         """
         super().__init__()
         self._node = rclpy.create_node(node_name, **node_kwds)
@@ -64,7 +66,8 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             action_msg_type, action_topic_name, qos, **action_kwds
         )
         self._obs = initial_obs
-        self._lock = threading.RLock()
+        self._obs_cv = threading.Condition()
+        self._obs_timeout = obs_timeout
 
         self._obs_thread: threading.Thread | None = None
 
@@ -121,14 +124,17 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         Args:
             data: Observation data from ROS2
         """
-        with self._lock:
+        with self._obs_cv:
             self._obs = data
+            self._obs_cv.notify_all()
 
     @override
     def observe(self) -> Obs:
         """Get the current observation from ROS2.
 
-        Returns the most recent observation received from the topic.
+        If obs_timeout is set, this method will wait for a new observation
+        for the specified duration. If no new observation arrives within
+        the timeout period, it returns the most recent observation.
 
         Returns:
             Current observation from ROS2
@@ -141,7 +147,8 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
                 "Environment not set up. Call `setup()` before observe()."
             )
 
-        with self._lock:
+        with self._obs_cv:
+            self._obs_cv.wait(self._obs_timeout)
             return self._obs
 
     @override
@@ -157,7 +164,13 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
     def setup(self) -> None:
         """Set up ROS2 node and start spinning it in a separate thread."""
         super().setup()
-        self._obs_thread = threading.Thread(target=lambda: rclpy.spin(self.node))
+
+        def obs_thread():
+            rclpy.spin(self.node)
+            with self._obs_cv:
+                self._obs_cv.notify_all()  # release obs condition.
+
+        self._obs_thread = threading.Thread(target=obs_thread)
         self._obs_thread.start()
 
     @override

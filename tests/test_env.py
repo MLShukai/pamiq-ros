@@ -1,3 +1,5 @@
+import threading
+import time
 from collections.abc import Generator
 
 import pytest
@@ -59,6 +61,23 @@ class TestROS2Environment:
         yield env
 
     @pytest.fixture
+    def env_with_timeout(
+        self, initial_obs: String
+    ) -> Generator[ROS2Environment[String, String], None, None]:
+        """ROS2Environment fixture with observation timeout."""
+        env = ROS2Environment(
+            node_name="test_env_timeout_node",
+            obs_topic_name="/test_obs_topic",
+            obs_msg_type=String,
+            action_topic_name="/test_action_topic",
+            action_msg_type=String,
+            initial_obs=initial_obs,
+            qos=10,
+            obs_timeout=0.2,  # Short timeout for testing
+        )
+        yield env
+
+    @pytest.fixture
     def setup_env(self, env: ROS2Environment) -> Generator[ROS2Environment, None, None]:
         """Setup and teardown for environment."""
         env.setup()
@@ -66,6 +85,17 @@ class TestROS2Environment:
             yield env
         finally:
             env.teardown()
+
+    @pytest.fixture
+    def setup_env_with_timeout(
+        self, env_with_timeout: ROS2Environment
+    ) -> Generator[ROS2Environment, None, None]:
+        """Setup and teardown for environment with timeout."""
+        env_with_timeout.setup()
+        try:
+            yield env_with_timeout
+        finally:
+            env_with_timeout.teardown()
 
     def test_properties(self, env: ROS2Environment):
         """Test property accessors."""
@@ -139,3 +169,77 @@ class TestROS2Environment:
         executor.spin_once(0.1)
         observation3 = setup_env.observe()
         assert observation3.data == "observation 2"
+
+    def test_observe_with_timeout(
+        self,
+        setup_env_with_timeout: ROS2Environment[String, String],
+    ):
+        """Test observation with timeout returns the current observation when
+        no new data arrives."""
+        # First observation returns initial value
+        start_time = time.time()
+        observation = setup_env_with_timeout.observe()
+        elapsed = time.time() - start_time
+
+        # Should return quickly with the initial value
+        assert observation.data == "initial observation"
+        # Should have waited for the timeout
+        assert 0.2 < elapsed < 0.3  # Loose upper bound
+
+    def test_waiting_for_observation(
+        self,
+        setup_env_with_timeout: ROS2Environment[String, String],
+        executor: SingleThreadedExecutor,
+        obs_publisher: TestPublisher,
+    ):
+        """Test that observe waits for new observations within timeout
+        period."""
+
+        # Start a background thread that will publish after a short delay
+        def delayed_publish():
+            obs_publisher.publish("delayed observation")
+            executor.spin_once(0.05)
+
+        # Start background thread and call observe
+        bg_thread = threading.Timer(0.1, delayed_publish)
+        bg_thread.start()
+
+        # This should wait for the new observation
+        start = time.perf_counter()
+        observation = setup_env_with_timeout.observe()
+        assert 0.1 < time.perf_counter() - start < 0.2
+        # Wait for background thread to complete
+        bg_thread.join()
+
+        # Should receive the published message
+        assert observation.data == "delayed observation"
+
+    def test_shutdown_notification(
+        self,
+        env_with_timeout: ROS2Environment[String, String],
+    ):
+        """Test that observe is notified when ROS2 node is shut down."""
+        env_with_timeout.setup()
+
+        # Start a background thread that will call observe
+        result: dict[str, String | None] = {"observation": None}
+
+        def observe_thread():
+            result["observation"] = env_with_timeout.observe()
+
+        bg_thread = threading.Thread(target=observe_thread)
+        bg_thread.start()
+
+        # Give the thread a moment to start and begin waiting
+        time.sleep(0.1)
+
+        # Shutdown the environment
+        env_with_timeout.teardown()
+
+        # Wait for the background thread to complete
+        bg_thread.join(timeout=1.0)
+        assert not bg_thread.is_alive()  # Thread should have completed
+
+        # Observation should be the initial one (or whatever was last)
+        assert result["observation"] is not None
+        assert result["observation"].data == "initial observation"
