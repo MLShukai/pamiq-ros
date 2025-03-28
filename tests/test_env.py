@@ -243,3 +243,32 @@ class TestROS2Environment:
         # Observation should be the initial one (or whatever was last)
         assert result["observation"] is not None
         assert result["observation"].data == "initial observation"
+
+    def test_observe_with_new_data_no_wait(
+        self,
+        setup_env_with_timeout: ROS2Environment[String, String],
+        executor: SingleThreadedExecutor,
+        obs_publisher: TestPublisher,
+    ):
+        """Test that observe returns immediately if new data is available."""
+        # Publish a new message
+        obs_publisher.publish("new observation")
+        executor.spin_once(0.1)
+
+        # This should return immediately without waiting
+        start = time.perf_counter()
+        observation = setup_env_with_timeout.observe()
+        elapsed = time.perf_counter() - start
+
+        # Should return quickly with the new observation
+        assert observation.data == "new observation"
+        assert elapsed < 0.05  # Much less than the 0.2s timeout
+
+        # Second observe call should wait (no new data)
+        start = time.perf_counter()
+        observation = setup_env_with_timeout.observe()
+        elapsed = time.perf_counter() - start
+
+        # Should have waited for the timeout
+        assert 0.2 < elapsed < 0.3
+        assert observation.data == "new observation"  # Same data as before

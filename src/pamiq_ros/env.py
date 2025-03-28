@@ -68,6 +68,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         self._obs = initial_obs
         self._obs_cv = threading.Condition()
         self._obs_timeout = obs_timeout
+        self._has_new_observation = False
 
         self._obs_thread: threading.Thread | None = None
 
@@ -119,22 +120,25 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
     def _obs_callback(self, data: Obs) -> None:
         """Process an observation message from ROS2.
 
-        Updates the stored observation with thread-safe access.
+        Updates the stored observation with thread-safe access and marks
+        that a new observation has been received.
 
         Args:
             data: Observation data from ROS2
         """
         with self._obs_cv:
             self._obs = data
+            self._has_new_observation = True
             self._obs_cv.notify_all()
 
     @override
     def observe(self) -> Obs:
         """Get the current observation from ROS2.
 
-        If obs_timeout is set, this method will wait for a new observation
-        for the specified duration. If no new observation arrives within
-        the timeout period, it returns the most recent observation.
+        If a new observation has been received since the last call, it returns
+        immediately. Otherwise, if obs_timeout is set, this method will wait
+        for a new observation for the specified duration. If no new observation
+        arrives within the timeout period, it returns the most recent observation.
 
         Returns:
             Current observation from ROS2
@@ -148,7 +152,9 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             )
 
         with self._obs_cv:
-            self._obs_cv.wait(self._obs_timeout)
+            if not self._has_new_observation:
+                self._obs_cv.wait(self._obs_timeout)
+            self._has_new_observation = False
             return self._obs
 
     @override
