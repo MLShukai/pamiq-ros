@@ -36,7 +36,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         node_kwds: Kwds = DEFAULT_KWDS,
         obs_kwds: Kwds = DEFAULT_KWDS,
         action_kwds: Kwds = DEFAULT_KWDS,
-        obs_timeout: float | None = 0.0,
+        new_obs_timeout: float | None = 0.0,
     ) -> None:
         """Initialize ROS2 environment.
 
@@ -51,7 +51,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             node_kwds: Additional keyword arguments for node creation
             obs_kwds: Additional keyword arguments for subscription
             action_kwds: Additional keyword arguments for publisher
-            obs_timeout: Timeout in seconds for waiting on new observations (None means no timeout)
+            new_obs_timeout: Timeout in seconds for waiting on new observations (None means no timeout)
         """
         super().__init__()
         self._node = rclpy.create_node(node_name, **node_kwds)
@@ -67,7 +67,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         )
         self._obs = initial_obs
         self._obs_cv = threading.Condition()
-        self._obs_timeout = obs_timeout
+        self._new_obs_timeout = new_obs_timeout
         self._has_new_observation = False
 
         self._obs_thread: threading.Thread | None = None
@@ -153,7 +153,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
 
         with self._obs_cv:
             if not self._has_new_observation:
-                self._obs_cv.wait(self._obs_timeout)
+                self._obs_cv.wait(self._new_obs_timeout)
             self._has_new_observation = False
             return self._obs
 

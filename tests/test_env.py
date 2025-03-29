@@ -73,7 +73,7 @@ class TestROS2Environment:
             action_msg_type=String,
             initial_obs=initial_obs,
             qos=10,
-            obs_timeout=0.2,  # Short timeout for testing
+            new_obs_timeout=0.2,  # Short timeout for testing
         )
         yield env
 
