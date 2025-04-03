@@ -146,6 +146,10 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         Raises:
             RuntimeError: If called before setup
         """
+        if not rclpy.ok():
+            raise RuntimeError(
+                "ROS2 context is not initialized or has been shutdown. Call rclpy.init() before using ROS2 environment."
+            )
         if self._obs_thread is None or not self._obs_thread.is_alive():
             raise RuntimeError(
                 "Environment not set up. Call `setup()` before observe()."
