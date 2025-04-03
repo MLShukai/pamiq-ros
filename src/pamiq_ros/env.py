@@ -66,9 +66,9 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             action_msg_type, action_topic_name, qos, **action_kwds
         )
         self._obs = initial_obs
-        self._obs_cv = threading.Condition()
+        self._obs_lock = threading.RLock()
+        self._new_obs_event = threading.Event()
         self._new_obs_timeout = new_obs_timeout
-        self._has_new_observation = False
 
         self._obs_thread: threading.Thread | None = None
 
@@ -126,10 +126,9 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         Args:
             data: Observation data from ROS2
         """
-        with self._obs_cv:
+        with self._obs_lock:
             self._obs = data
-            self._has_new_observation = True
-            self._obs_cv.notify_all()
+            self._new_obs_event.set()
 
     @override
     def observe(self) -> Obs:
@@ -146,7 +145,7 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
         Raises:
             RuntimeError: If called before setup
         """
-        if not rclpy.ok():
+        if not rclpy.ok():  # pyright: ignore[reportPrivateImportUsage]
             raise RuntimeError(
                 "ROS2 context is not initialized or has been shutdown. Call rclpy.init() before using ROS2 environment."
             )
@@ -154,11 +153,9 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
             raise RuntimeError(
                 "Environment not set up. Call `setup()` before observe()."
             )
-
-        with self._obs_cv:
-            if not self._has_new_observation:
-                self._obs_cv.wait(self._new_obs_timeout)
-            self._has_new_observation = False
+        self._new_obs_event.wait(self._new_obs_timeout)
+        with self._obs_lock:
+            self._new_obs_event.clear()
             return self._obs
 
     @override
@@ -177,8 +174,8 @@ class ROS2Environment[Obs, Act](Environment[Obs, Act]):
 
         def obs_thread():
             rclpy.spin(self.node)
-            with self._obs_cv:
-                self._obs_cv.notify_all()  # release obs condition.
+            with self._obs_lock:
+                self._new_obs_event.set()  # release obs condition.
 
         self._obs_thread = threading.Thread(target=obs_thread)
         self._obs_thread.start()
